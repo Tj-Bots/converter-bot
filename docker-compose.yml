@@ -1,0 +1,17 @@
+services:
+  converter-bot:
+    build: .
+    container_name: converter-bot
+    restart: always
+    env_file:
+      - .env
+    volumes:
+      - ./users_db.json:/app/users_db.json
+      - ./users.txt:/app/users.txt
+      - ./downloads:/app/downloads
+      - ./converter_bot_final_v16.session:/app/converter_bot_final_v16.session
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"

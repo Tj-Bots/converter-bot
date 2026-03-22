@@ -90,6 +90,51 @@ A high-performance, feature-rich Telegram bot built with **Pyrofork**. This bot 
 
 ---
 
+## 🐋 Docker & VPS Deployment
+
+<details>
+<summary><b>🚀 Run with Docker (Recommended)</b></summary>
+
+1.  **Build and Start:**
+    ```bash
+    docker compose up -d --build
+    ```
+
+2.  **View Logs:**
+    ```bash
+    docker compose logs -f
+    ```
+
+3.  **Stop:**
+    ```bash
+    docker compose down
+    ```
+</details>
+
+<details>
+<summary><b>🖥️ Run on VPS (Manual Setup)</b></summary>
+
+1.  **Install dependencies:**
+    ```bash
+    sudo apt update && sudo apt install -y python3-pip ffmpeg
+    ```
+
+2.  **Clone and install requirements:**
+    ```bash
+    git clone https://github.com/Tj-Bots/converter-bot.git
+    cd converter-bot
+    pip install -r requirements.txt
+    ```
+
+3.  **Run in background (screen/tmux):**
+    ```bash
+    screen -S converter-bot
+    python3 main.py
+    ```
+</details>
+
+---
+
 ## ⚙️ Configuration (.env)
 
 | Variable | Description |
