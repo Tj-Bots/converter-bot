@@ -1,43 +1,52 @@
 # 🚀 Advanced Telegram File & Video Converter Bot
 
-A powerful, high-performance Telegram bot built with **Pyrofork** (a modern Pyrogram fork). This bot allows users to rename files, change thumbnails, and convert between video and document formats with advanced features like custom captions and screenshots.
+A high-performance, feature-rich Telegram bot built with **Pyrofork**. This bot is designed for seamless file management, media conversion, and advanced user personalization.
 
 ---
 
 ## ✨ Key Features
 
 <details>
-<summary><b>📂 File & Media Management</b></summary>
+<summary><b>📂 Core Media Management</b></summary>
 
-- **Rename Files:** Custom renaming with original extension preservation.
-- **Thumbnail Support:** Set custom thumbnails for all your uploads.
-- **Conversion:** Effortlessly convert **Video ↔️ Document**.
-- **Large File Support:** Handles files up to **4GB** (with Premium/Userbot session).
+- **Fast Renaming:** Rename any file or video with full extension support.
+- **Media Conversion:** Convert **Video ↔️ Document** on the fly.
+- **Thumbnail Support:** Save custom thumbnails (`/viewthumb`, `/delthumb`) for all your future uploads.
+- **Screenshot Generation:** Automatically extract up to 10 screenshots from videos (configurable in settings).
 </details>
 
 <details>
-<summary><b>🎨 Personalization</b></summary>
+<summary><b>🎨 Advanced Personalization</b></summary>
 
-- **Custom Captions:** Support for HTML tags and dynamic variables (`{filename}`, `{filesize}`).
-- **Screenshots:** Automatically generate and send multiple screenshots from videos.
-- **Flexible Modes:** Choose between Video, File, Swap, or Ask-on-each-file modes.
+- **Custom Captions:** Powerful HTML caption engine with dynamic variables:
+  - `{filename}`: The name of the processed file.
+  - `{filesize}`: Human-readable size (e.g., 1.5 GB).
+- **Flexible Modes:**
+  - `🎥 Video`: Always upload as streamable video.
+  - `📁 File`: Always upload as a document.
+  - `🔄 Swap`: Automatically switch (Video to File, File to Video).
+  - `❓ Ask`: Prompt for action on every file.
 </details>
 
 <details>
-<summary><b>⭐ Premium & User Management</b></summary>
+<summary><b>⭐ Premium & Monetization System</b></summary>
 
-- **Tiered Plans:** Free, Test, Gold, and Ultra plans with different limits.
-- **Redeem System:** Grant premium access via unique redeem codes.
-- **Daily Limits:** Intelligent daily conversion tracking and reset.
-- **Admin Panel:** Full control over users, bans, plans, and broadcasting.
+- **Tiered Plans:**
+  - **🎯 Free:** 10 daily conversions, 2GB max size, 1 concurrent task, 60s cooldown.
+  - **🧪 Test:** (Trial) 10 daily conversions, 4GB max size, 2 concurrent tasks, no cooldown.
+  - **🥇 Gold:** 20 daily conversions, 4GB max size, 2 concurrent tasks.
+  - **👑 Ultra:** 50 daily conversions, Unlimited size, 3 concurrent tasks.
+- **Redeem System:** Integrated `/redeem` command for activating premium plans via codes.
+- **Daily Limits:** Intelligent tracking and automated daily reset at 00:00 UTC.
 </details>
 
 <details>
-<summary><b>📊 Performance & Stability</b></summary>
+<summary><b>📊 Performance & Monitoring</b></summary>
 
-- **Real-time Status:** Live progress bars and server performance monitoring (CPU/RAM/Disk).
-- **Task Management:** Simultaneous task handling with cancellation support.
-- **Database:** Local JSON-based storage for user persistence.
+- **Live Progress:** Detailed progress bars for both downloading and uploading.
+- **Server Health:** Real-time monitoring of CPU, RAM, Disk, and Task Load (`/status`).
+- **Concurrent Tasks:** Advanced locking system to manage multiple tasks per user.
+- **Premium Userbot:** Integrated Session String support for bypassing Telegram's 2GB upload limit (up to 4GB/Unlimited).
 </details>
 
 ---
@@ -45,67 +54,53 @@ A powerful, high-performance Telegram bot built with **Pyrofork** (a modern Pyro
 ## 🛠 Tech Stack
 
 - **Language:** Python 3.13+
-- **Core Library:** [Pyrofork](https://github.com/himeko-org/pyrofork)
+- **Core:** [Pyrofork](https://github.com/himeko-org/pyrofork)
 - **Metadata:** [Hachoir](https://github.com/vstinner/hachoir)
 - **Media Processing:** [FFmpeg](https://ffmpeg.org/)
-- **Process Info:** [psutil](https://github.com/giampaolo/psutil)
+- **System monitoring:** `psutil`
+- **Database:** Local JSON persistence (`users_db.json`)
 
 ---
 
-## 🚀 Installation & Setup
+## 🚀 Commands Guide
 
-1. **Clone the repository:**
-   ```bash
-   git clone https://github.com/yourusername/converter-bot.git
-   cd converter-bot
-   ```
+### 👤 User Commands
+- `/start` - Launch the bot and main menu.
+- `/help` - Comprehensive guide for Thumbnails, Captions, and Redeem.
+- `/settings` - Configure Mode, Rename behavior, and Screenshot count.
+- `/plans` - View subscription details and limits.
+- `/status` - View active tasks and server performance.
+- `/set_cap` / `/del_cap` - Manage custom caption templates.
+- `/viewthumb` / `/delthumb` - Manage custom thumbnails.
+- `/redeem <code>` - Activate premium access.
+- `/cancel <task_id>` - Stop a specific active task.
 
-2. **Install dependencies:**
-   ```bash
-   pip install -r requirements.txt
-   ```
-
-3. **Configure Environment Variables:**
-   Create a `.env` file in the root directory:
-   ```env
-   API_ID=your_api_id
-   API_HASH=your_api_hash
-   BOT_TOKEN=your_bot_token
-   ADMIN_ID=your_telegram_id
-   DUMP_CHANNEL=your_channel_id
-   SESSION_STRING=your_premium_session_string (optional)
-   ```
-
-4. **Run the bot:**
-   ```bash
-   python main.py
-   ```
+### 👑 Admin Commands (`ADMIN_ID` only)
+- `/admin` - Master control panel with full user/plan statistics.
+- `/broadcast` - Send announcements (Copy/Forward modes) to all users.
+- `/gencodes <count> <duration> [plan]` - Generate unique redeem codes (e.g., `/gencodes 5 30d gold`).
+- `/redeem_stats` - View used vs available redeem codes.
+- `/add_plan <uid> <plan> <duration>` - Manually grant premium access.
+- `/remove_plan <uid>` - Revoke premium access.
+- `/plan_list` - List active premium users.
+- `/users` / `/allban` - Manage user database and bans.
+- `/ban` / `/unban <uid>` - Restrict user access.
+- `/restart` - Reboot the bot remotely.
+- `/cancelall` - Stop all active tasks on the server.
 
 ---
 
-## 📜 Commands
+## ⚙️ Configuration (.env)
 
-- `/start` - Start the bot and see the main menu.
-- `/settings` - Configure your personal upload preferences.
-- `/plans` - View and upgrade your subscription.
-- `/status` - Check active tasks and server health.
-- `/set_cap` - Set a custom caption template.
-- `/viewthumb` - View your current custom thumbnail.
-- `/redeem` - Activate premium using a code.
-
----
-
-## 👑 Admin Commands
-
-- `/admin` - Open the admin control panel.
-- `/broadcast` - Send messages to all users.
-- `/gencodes` - Generate unique redeem codes.
-- `/ban` / `/unban` - Manage user access.
-- `/add_plan` - Manually grant premium to a user.
+| Variable | Description |
+| :--- | :--- |
+| `API_ID` | Telegram API ID from my.telegram.org |
+| `API_HASH` | Telegram API Hash from my.telegram.org |
+| `BOT_TOKEN` | Bot token from @BotFather |
+| `ADMIN_ID` | Numerical ID of the bot administrator |
+| `DUMP_CHANNEL` | Channel ID for file storage (Premium/Large files) |
+| `SESSION_STRING` | (Optional) Pyrogram session for Premium features |
 
 ---
 
-> **Note:** This bot is designed for high-performance file handling. Ensure your server has sufficient disk space for temporary file processing.
-
----
 **Developed with ❤️ by [𝑻𝒉𝒆 𝑱𝒐𝒌𝒆𝒓🃏](https://t.me/The_Joker121_bot)**
