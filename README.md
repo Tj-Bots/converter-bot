@@ -148,4 +148,12 @@ A high-performance, feature-rich Telegram bot built with **Pyrofork**. This bot 
 
 ---
 
+## 🔗 Links & Support
+
+- **🤖 Live Demo:** [@TJRenameBot](https://t.me/TJRenameBot)
+- **📢 Updates Channel:** [@TJ_Bots](https://t.me/TJ_Bots)
+- **👤 Developer:** [𝑻𝒉𝒆 𝑱𝒐𝒌𝒆𝒓🃏](https://t.me/The_Joker121_bot)
+
+---
+
 **Developed with ❤️ by [𝑻𝒉𝒆 𝑱𝒐𝒌𝒆𝒓🃏](https://t.me/The_Joker121_bot)**
