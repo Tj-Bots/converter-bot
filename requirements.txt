@@ -1,0 +1,5 @@
+pyrofork
+hachoir
+psutil
+python-dotenv
+pytz
