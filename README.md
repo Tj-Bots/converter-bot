@@ -1,4 +1,4 @@
-# 🚀 Advanced Telegram File & Video Converter Bot # Rename Bot
+# 🚀 Advanced Telegram File & Rename Bot
 
 A high-performance, feature-rich Telegram bot built with **Pyrofork**. This bot is designed for seamless file management, media conversion, and advanced user personalization.
 
@@ -137,14 +137,15 @@ A high-performance, feature-rich Telegram bot built with **Pyrofork**. This bot 
 
 ## ⚙️ Configuration (.env)
 
-| Variable | Description |
-| :--- | :--- |
-| `API_ID` | Telegram API ID from my.telegram.org |
-| `API_HASH` | Telegram API Hash from my.telegram.org |
-| `BOT_TOKEN` | Bot token from @BotFather |
-| `ADMIN_ID` | Numerical ID of the bot administrator |
-| `DUMP_CHANNEL` | Channel ID for file storage (Premium/Large files) |
-| `SESSION_STRING` | (Optional) Pyrogram session for Premium features |
+| Variable | Description | Example | Required |
+|---|---|---|---|
+| `API_ID` | Telegram API ID from my.telegram.org | 123456 | ✓ |
+| `API_HASH` | Telegram API Hash from my.telegram.org | abcdefghijklmnopqrstuvwxyz12345678 | ✓ |
+| `BOT_TOKEN` | Bot token from @BotFather | 12345678 | ✓ |
+| `ADMIN_ID` | Numerical ID of the bot administrator | 12345678 | ✓ |
+| `MONGO_URI` | MongoDB connection string for database storage | mongodb+srv://Username:Password@cluster0.iq0vd.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0 | ✓ |
+| `DUMP_CHANNEL` | Channel ID for file storage (Required for large files) | -100XXXXXXXXX | ✓ |
+| `SESSION_STRING` | Pyrogram session string for Premium features | BQB123... | ✘ |
 
 ---
 
