@@ -67,7 +67,7 @@ TEST_DAILY_LIMIT = 10
 GOLD_DAILY_LIMIT = 20
 ULTRA_DAILY_LIMIT = 50
 
-MAX_FILE_SIZE_NORMAL = 2 * 1024 * 1024 * 1024  # 2GB
+MAX_FILE_SIZE_NORMAL = 1950 * 1024 * 1024  # 2GB
 MAX_FILE_SIZE_PREMIUM = 4 * 1024 * 1024 * 1024  # 4GB
 
 COOLDOWN_NORMAL = 60
@@ -164,7 +164,7 @@ def time_formatter(seconds):
 
 def get_prog_bar(percent, length=10):
     filled = int(length * percent / 100)
-    return "█" * filled + "░" * (length - filled)
+    return "■" * filled + "□" * (length - filled)
 
 def human_size(size):
     if not size:
@@ -759,6 +759,7 @@ async def copy_from_dump_to_user(client, dump_msg, user_id, caption, reply_to_me
 # ==================== COMMAND HANDLERS ====================
 def get_main_btns():
     return InlineKeyboardMarkup([
+        [InlineKeyboardButton("💬 Group", url="https://t.me/TJ_Bots_Chat"), InlineKeyboardButton("📢 Channel", url="https://t.me/Tj_Bots")],
         [InlineKeyboardButton("⚙️ Settings", callback_data="ui_settings"), InlineKeyboardButton("⭐ Plans", callback_data="ui_plans")],
         [InlineKeyboardButton("📊 Server", callback_data="ui_status"), InlineKeyboardButton("ℹ️ About", callback_data="ui_about")],
         [InlineKeyboardButton("❓ Help", callback_data="ui_help")],
@@ -838,7 +839,7 @@ async def status_command(client, message):
         pass
 
     if not active_tasks:
-        msg = await client.send_message(message.chat.id, "📭 No active downloads/uploads.")
+        msg = await client.send_message(message.chat.id, "<blockquote>📭 No active downloads/uploads.</blockquote>")
         await asyncio.sleep(3)
         await msg.delete()
         return
@@ -1136,7 +1137,7 @@ async def callback_manager(client, query: CallbackQuery):
                 f"📢 <b>Cʜᴀɴɴᴇʟ :</b> <a href='{CHANNEL_LINK}'>𝗧𝗷 𝗕𝗼𝘁𝘀</a>\n\n"
                 f"<blockquote><b>Bᴏᴛ Dᴇsɪɢɴᴇᴅ & Dᴇᴠᴇʟᴏᴘᴇᴅ ʙʏ <a href='{DEVELOPER_LINK}'>{DEVELOPER_NAME}</a></b></blockquote>"
             )
-            await query.message.edit_text(text, reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Bᴀᴄᴋ", callback_data="ui_home")]]), disable_web_page_preview=True)
+            await query.message.edit_text(text, reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🐙 𝚂𝚘𝚞𝚛𝚌𝚎 𝙲𝚘𝚍𝚎", url="https://github.com/Tj-Bots/TJ-Rename-Bot")], [InlineKeyboardButton("🔙 Bᴀᴄᴋ", callback_data="ui_home")]]), disable_web_page_preview=True)
         
         elif data == "ui_help":
             await show_help_menu(client, query, uid)
@@ -1239,11 +1240,10 @@ async def callback_manager(client, query: CallbackQuery):
             ]
             mode_text = (
                 "<b>⚙️ Choose default conversion mode:</b>\n\n"
-                "<blockquote>"
-                "🎥 <b>Video</b> — Always upload as a streamable video\n"
-                "📁 <b>File</b> — Always upload as a document/file\n"
-                "🔄 <b>Swap</b> — Auto-flip: video→file, file→video\n"
-                "❓ <b>Ask</b> — Ask each time how to upload"
+                "<blockquote>🎥 <b>Video</b> — Always upload as a streamable video</blockquote>\n"
+                "<blockquote>📁 <b>File</b> — Always upload as a document/file</blockquote>\n"
+                "<blockquote>🔄 <b>Swap</b> — Auto-flip: video→file, file→video</blockquote>\n"
+                "<blockquote>❓ <b>Ask</b> — Ask each time how to upload"
                 "</blockquote>"
             )
             await query.message.edit_text(mode_text, reply_markup=InlineKeyboardMarkup(btns))
@@ -1257,9 +1257,9 @@ async def callback_manager(client, query: CallbackQuery):
             ]
             await query.message.edit_text(
                 "<b>Rename settings:</b>\n\n"
-                "✓ = Always ask for new name\n"
-                "✘ = Always keep original name\n"
-                "❓ = Ask each time",
+                "<blockquote>✓ = Always ask for new name</blockquote>\n"
+                "<blockquote>✘ = Always keep original name</blockquote>\n"
+                "<blockquote>❓ = Ask each time</blockquote>",
                 reply_markup=InlineKeyboardMarkup(btns)
             )
         
@@ -1362,7 +1362,7 @@ async def callback_manager(client, query: CallbackQuery):
             last_refresh[user_id] = now
             
             await update_user_status(user_id)
-            await query.answer("Refreshed!")
+            #await query.answer("Refreshed!")
         
         elif data == "close_all":
             try:
@@ -1804,7 +1804,7 @@ async def view_cap_p(client, message):
 
 @bot.on_message(filters.command(["del_caption", "del_cap"]))
 async def del_cap_p(client, message):
-    get_user_config(message.from_user.id)["caption"] = "<b><i>{filename}</i></b>\n\n<u>Sɪᴢᴇ:</u> <code>{filesize}</code>"
+    get_user_config(message.from_user.id)["caption"] = "<b><i>{filename}</i>\n\n<blockquote>Size: {filesize}</blockquote></b>"
     save_db(db)
     await message.reply_text("🗑 <b>Caption Reset to Default!</b>", reply_to_message_id=message.id)
 
