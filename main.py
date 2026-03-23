@@ -269,11 +269,30 @@ async def _save_user(uid):
     doc["_id"] = uid
     await _col_users.replace_one({"_id": uid}, doc, upsert=True)
 
+async def _save_code(code, doc):
+    await _col_redeem_codes.replace_one({"_id": code}, doc, upsert=True)
+
+async def _save_banned(uid):
+    await _col_banned.replace_one({"_id": uid}, {"_id": uid}, upsert=True)
+
+async def _delete_banned(uid):
+    await _col_banned.delete_one({"_id": uid})
+
+async def _save_bought_test(uid):
+    await _col_bought_test.replace_one({"_id": uid}, {"_id": uid}, upsert=True)
+
+def _run(coro):
+    """Schedule an async task safely from sync context."""
+    try:
+        loop = asyncio.get_running_loop()
+        loop.create_task(coro)
+    except RuntimeError:
+        asyncio.get_event_loop().run_until_complete(coro)
+
 def save_db(data=None):
     """Compatibility shim — schedules async saves for any dirty users."""
-    loop = asyncio.get_event_loop()
     for uid in db.users:
-        loop.create_task(_save_user(uid))
+        _run(_save_user(uid))
 
 user_cooldowns = {}
 temp_context = {}
@@ -299,7 +318,7 @@ def get_user_config(user_id):
     user_id = str(user_id)
     if user_id not in db.users:
         db.users[user_id] = DEFAULT_USER(user_id)
-        asyncio.get_event_loop().create_task(_save_user(user_id))
+        _run(_save_user(user_id))
     else:
         changed = False
         u = db.users[user_id]
@@ -311,7 +330,7 @@ def get_user_config(user_id):
         if "redeem_used" not in u:
             u["redeem_used"] = False; changed = True
         if changed:
-            asyncio.get_event_loop().create_task(_save_user(user_id))
+            _run(_save_user(user_id))
     return db.users[user_id]
 
 def check_premium(user_id):
@@ -325,7 +344,7 @@ def check_premium(user_id):
         expires = datetime.fromisoformat(premium["expires"]) if isinstance(premium["expires"], str) else premium["expires"]
         if datetime.now() > expires:
             config["premium"] = {"type": "free", "expires": None, "daily_conversions": 0, "daily_failed": 0, "last_reset": str(datetime.now().date())}
-            asyncio.get_event_loop().create_task(_save_user(user_id))
+            _run(_save_user(user_id))
             return "free"
     return premium["type"]
 
@@ -389,7 +408,7 @@ def check_daily_limit(user_id):
         config["premium"]["daily_conversions"] = 0
         config["premium"]["daily_failed"] = 0
         config["premium"]["last_reset"] = today
-        asyncio.get_event_loop().create_task(_save_user(user_id))
+        _run(_save_user(user_id))
 
     limits = get_premium_limits(user_id)
     return config["premium"]["daily_conversions"] < limits["daily_limit"]
@@ -412,7 +431,7 @@ def add_conversion(user_id, success=True):
     else:
         config["premium"]["daily_failed"] += 1
 
-    asyncio.get_event_loop().create_task(_save_user(user_id))
+    _run(_save_user(user_id))
 
 
 # ==================== REDEEM CODES ====================
@@ -435,9 +454,7 @@ def generate_redeem_codes(count, duration_str, plan="gold"):
             "created_at": datetime.now().isoformat()
         }
         db.redeem_codes[code] = doc
-        asyncio.get_event_loop().create_task(
-            _col_redeem_codes.replace_one({"_id": code}, doc, upsert=True)
-        )
+        _run(_save_code(code, doc))
         codes.append(code)
     return codes
 
@@ -478,10 +495,8 @@ def use_redeem_code(code, user_id):
         }
         db.redeem_codes[code]["used_by"] = str(user_id)
         db.redeem_codes[code]["used_at"] = datetime.now().isoformat()
-        asyncio.get_event_loop().create_task(_save_user(user_id))
-        asyncio.get_event_loop().create_task(
-            _col_redeem_codes.replace_one({"_id": code}, db.redeem_codes[code], upsert=True)
-        )
+        _run(_save_user(user_id))
+        _run(_save_code(code, db.redeem_codes[code]))
         return True
     return False
 
@@ -495,9 +510,7 @@ def mark_test_bought(user_id):
     uid = str(user_id)
     if uid not in db.bought_test:
         db.bought_test.append(uid)
-        asyncio.get_event_loop().create_task(
-            _col_bought_test.replace_one({"_id": uid}, {"_id": uid}, upsert=True)
-        )
+        _run(_save_bought_test(uid))
 
 def add_premium(user_id, plan, duration_str):
     duration = parse_duration(duration_str)
@@ -515,7 +528,7 @@ def add_premium(user_id, plan, duration_str):
             "daily_failed": 0,
             "last_reset": str(datetime.now().date())
         }
-        asyncio.get_event_loop().create_task(_save_user(user_id))
+        _run(_save_user(user_id))
         return True
     return False
 
@@ -1290,21 +1303,21 @@ async def callback_manager(client, query: CallbackQuery):
         
         elif data.startswith("m_"):
             config["mode"] = data.split("_")[1]
-            asyncio.get_event_loop().create_task(_save_user(uid))
+            _run(_save_user(uid))
             query.data = "ui_settings"
             await callback_manager(client, query)
             return
         
         elif data.startswith("r_"):
             config["rename"] = data.split("_")[1]
-            asyncio.get_event_loop().create_task(_save_user(uid))
+            _run(_save_user(uid))
             query.data = "ui_settings"
             await callback_manager(client, query)
             return
         
         elif data.startswith("ss_"):
             config["screenshots"] = int(data.split("_")[1])
-            asyncio.get_event_loop().create_task(_save_user(uid))
+            _run(_save_user(uid))
             query.data = "ui_settings"
             await callback_manager(client, query)
             return
@@ -1616,7 +1629,7 @@ async def remove_plan_cmd(client, message):
         return await message.reply_text("❌ User has no active plan.", reply_to_message_id=message.id)
     old_plan = config["premium"]["type"]
     config["premium"] = {"type": "free", "expires": None, "daily_conversions": 0, "daily_failed": 0, "last_reset": str(datetime.now().date())}
-    asyncio.get_event_loop().create_task(_save_user(user_id))
+    _run(_save_user(user_id))
     await message.reply_text(f"✅ Removed {old_plan.upper()} plan from user {user_id}", reply_to_message_id=message.id)
 
 @bot.on_message(filters.command("plan_list") & filters.user(ADMIN_ID))
@@ -1727,7 +1740,7 @@ async def ban_user_cmd(client, message):
     target = message.command[1]
     if target not in db.banned:
         db.banned.append(target)
-        asyncio.get_event_loop().create_task(_col_banned.replace_one({"_id": target}, {"_id": target}, upsert=True))
+        _run(_save_banned(target))
         await message.reply_text(f"🚫 User <code>{target}</code> banned.", reply_to_message_id=message.id)
     else:
         await message.reply_text("User already banned.", reply_to_message_id=message.id)
@@ -1739,7 +1752,7 @@ async def unban_user_cmd(client, message):
     target = message.command[1]
     if target in db.banned:
         db.banned.remove(target)
-        asyncio.get_event_loop().create_task(_col_banned.delete_one({"_id": target}))
+        _run(_delete_banned(target))
         await message.reply_text(f"✅ User <code>{target}</code> unbanned.", reply_to_message_id=message.id)
     else:
         await message.reply_text("User not banned.", reply_to_message_id=message.id)
@@ -1807,7 +1820,7 @@ async def set_cap_p(client, message):
         return await message.reply_text(help_text, reply_to_message_id=message.id)
     uid = str(message.from_user.id)
     get_user_config(uid)["caption"] = message.text.split(None, 1)[1]
-    asyncio.get_event_loop().create_task(_save_user(uid))
+    _run(_save_user(uid))
     await message.reply_text("✅ <b>Caption Updated!</b>", reply_to_message_id=message.id)
 
 @bot.on_message(filters.command(["see_caption", "view_cap", "view_caption"]))
@@ -1824,14 +1837,14 @@ async def view_cap_p(client, message):
 async def del_cap_p(client, message):
     uid = str(message.from_user.id)
     get_user_config(uid)["caption"] = "<b><i>{filename}</i>\n\n<blockquote>Size: {filesize}</blockquote></b>"
-    asyncio.get_event_loop().create_task(_save_user(uid))
+    _run(_save_user(uid))
     await message.reply_text("🗑 <b>Caption Reset to Default!</b>", reply_to_message_id=message.id)
 
 @bot.on_message(filters.photo | (filters.document & filters.create(lambda _, __, m: m.document and m.document.mime_type.startswith("image/"))))
 async def save_thumb_p(client, message):
     uid = str(message.from_user.id)
     get_user_config(uid)["thumb"] = (message.photo or message.document).file_id
-    asyncio.get_event_loop().create_task(_save_user(uid))
+    _run(_save_user(uid))
     await message.reply_text("✅ <b>Thumbnail Saved!</b>", reply_to_message_id=message.id)
 
 @bot.on_message(filters.command(["viewthumb", "view_thumb"]))
@@ -1846,7 +1859,7 @@ async def view_thumb_p(client, message):
 async def del_thumb_p(client, message):
     uid = str(message.from_user.id)
     get_user_config(uid)["thumb"] = None
-    asyncio.get_event_loop().create_task(_save_user(uid))
+    _run(_save_user(uid))
     await message.reply_text("🗑 <b>Thumbnail Deleted!</b>", reply_to_message_id=message.id)
 
 @bot.on_message(filters.command("plans"))
