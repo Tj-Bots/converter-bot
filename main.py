@@ -3,7 +3,6 @@ import asyncio
 import time
 import math
 import subprocess
-import json
 import psutil
 import shutil
 import sys
@@ -14,6 +13,7 @@ import logging
 from datetime import datetime, timedelta
 from dotenv import load_dotenv
 load_dotenv()
+from motor.motor_asyncio import AsyncIOMotorClient
 from pyrogram import Client, filters, enums, StopTransmission, idle
 from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton, Message, CallbackQuery, InputMediaPhoto, InputMediaDocument, PreCheckoutQuery
 from pyrogram.errors import FloodWait, MessageNotModified, MessageIdInvalid
@@ -80,9 +80,10 @@ MAX_CONCURRENT_ADMIN  = 999
 
 WORKSPACE = "/root/.openclaw/workspace/converter_bot"
 DOWNLOAD_LOCATION = f"{WORKSPACE}/downloads"
-DB_PATH = f"{WORKSPACE}/users_db.json"
-USERS_TXT = f"{WORKSPACE}/users.txt"
 PREMIUM_LOG = f"{WORKSPACE}/premium_log.txt"
+
+MONGO_URI = os.getenv("MONGO_URI", "")
+DB_NAME = os.getenv("DB_NAME", "tj_rename")
 
 for path in [DOWNLOAD_LOCATION, WORKSPACE]:
     if not os.path.isdir(path):
@@ -213,40 +214,66 @@ def format_remaining_time(expiry_date):
         parts.append(f"{minutes} minute{'s' if minutes > 1 else ''}")
     return ", ".join(parts) if parts else "Less than a minute"
 
-# ==================== DATABASE ====================
-def load_db():
-    if os.path.exists(DB_PATH):
-        try:
-            with open(DB_PATH, "r") as f:
-                data = json.load(f)
-                if "users" not in data: data["users"] = {}
-                if "banned" not in data: data["banned"] = []
-                if "premium_logs" not in data: data["premium_logs"] = []
-                if "bought_test" not in data: data["bought_test"] = []
-                if "redeem_codes" not in data: data["redeem_codes"] = {}
-                return data
-        except Exception as e:
-            logger.error(f"Error loading DB: {e}")
-            return {"users": {}, "banned": [], "premium_logs": [], "bought_test": [], "redeem_codes": {}}
-    return {"users": {}, "banned": [], "premium_logs": [], "bought_test": [], "redeem_codes": {}}
+# ==================== DATABASE (MongoDB) ====================
+_mongo_client = AsyncIOMotorClient(MONGO_URI)
+_mongo_db = _mongo_client[DB_NAME]
 
-def save_db(data):
-    with open(DB_PATH, "w") as f:
-        json.dump(data, f, indent=4, default=str)
-    try:
-        user_ids = list(data.get("users", {}).keys())
-        with open(USERS_TXT, "w") as f_txt:
-            f_txt.write("\n".join(user_ids))
-    except Exception as e:
-        logger.error(f"Error syncing users.txt: {e}")
+_col_users        = _mongo_db["users"]
+_col_banned       = _mongo_db["banned"]
+_col_bought_test  = _mongo_db["bought_test"]
+_col_redeem_codes = _mongo_db["redeem_codes"]
+_col_premium_logs = _mongo_db["premium_logs"]
 
-db = load_db()
-if "users" not in db: db["users"] = {}
-if "banned" not in db: db["banned"] = []
-if "premium_logs" not in db: db["premium_logs"] = []
-if "bought_test" not in db: db["bought_test"] = []
-if "redeem_codes" not in db: db["redeem_codes"] = {}
-save_db(db)
+DEFAULT_USER = lambda uid: {
+    "_id": str(uid),
+    "thumb": None,
+    "mode": "ask",
+    "caption": "<b><i>{filename}</i>\n<blockquote>Size: {filesize}</blockquote></b>",
+    "rename": "ask",
+    "screenshots": 0,
+    "premium": {
+        "type": "free",
+        "expires": None,
+        "daily_conversions": 0,
+        "daily_failed": 0,
+        "last_reset": str(datetime.now().date())
+    },
+    "redeem_used": False
+}
+
+# ── in-memory cache so sync code can still read db["users"][uid] ──────────────
+class _DB:
+    """Thin dict-like wrapper. Keeps an in-memory mirror of Mongo collections."""
+    def __init__(self):
+        self.users        = {}   # uid -> user_doc
+        self.banned       = []   # list of uid strings
+        self.bought_test  = []   # list of uid strings
+        self.redeem_codes = {}   # code -> code_doc
+        self.premium_logs = []
+
+    async def load(self):
+        async for doc in _col_users.find():
+            self.users[doc["_id"]] = doc
+        async for doc in _col_banned.find():
+            self.banned.append(doc["_id"])
+        async for doc in _col_bought_test.find():
+            self.bought_test.append(doc["_id"])
+        async for doc in _col_redeem_codes.find():
+            self.redeem_codes[doc["_id"]] = doc
+
+db = _DB()
+
+async def _save_user(uid):
+    uid = str(uid)
+    doc = db.users[uid]
+    doc["_id"] = uid
+    await _col_users.replace_one({"_id": uid}, doc, upsert=True)
+
+def save_db(data=None):
+    """Compatibility shim — schedules async saves for any dirty users."""
+    loop = asyncio.get_event_loop()
+    for uid in db.users:
+        loop.create_task(_save_user(uid))
 
 user_cooldowns = {}
 temp_context = {}
@@ -270,38 +297,22 @@ def parse_duration(duration_str):
 
 def get_user_config(user_id):
     user_id = str(user_id)
-    if user_id not in db["users"]:
-        db["users"][user_id] = {
-            "thumb": None,
-            "mode": "ask",
-            "caption": "<b><i>{filename}</i></b>\n\n<u>Sɪᴢᴇ:</u> <code>{filesize}</code>",
-            "rename": "ask",
-            "screenshots": 0,
-            "premium": {
-                "type": "free",
-                "expires": None,
-                "daily_conversions": 0,
-                "daily_failed": 0,
-                "last_reset": str(datetime.now().date())
-            },
-            "redeem_used": False
-        }
-        save_db(db)
+    if user_id not in db.users:
+        db.users[user_id] = DEFAULT_USER(user_id)
+        asyncio.get_event_loop().create_task(_save_user(user_id))
     else:
-        if "premium" not in db["users"][user_id]:
-            db["users"][user_id]["premium"] = {
-                "type": "free",
-                "expires": None,
-                "daily_conversions": 0,
-                "daily_failed": 0,
-                "last_reset": str(datetime.now().date())
-            }
-        if "rename" not in db["users"][user_id]:
-            db["users"][user_id]["rename"] = "ask"
-        if "redeem_used" not in db["users"][user_id]:
-            db["users"][user_id]["redeem_used"] = False
-        save_db(db)
-    return db["users"][user_id]
+        changed = False
+        u = db.users[user_id]
+        if "premium" not in u:
+            u["premium"] = {"type": "free", "expires": None, "daily_conversions": 0, "daily_failed": 0, "last_reset": str(datetime.now().date())}
+            changed = True
+        if "rename" not in u:
+            u["rename"] = "ask"; changed = True
+        if "redeem_used" not in u:
+            u["redeem_used"] = False; changed = True
+        if changed:
+            asyncio.get_event_loop().create_task(_save_user(user_id))
+    return db.users[user_id]
 
 def check_premium(user_id):
     if int(user_id) == ADMIN_ID:
@@ -314,7 +325,7 @@ def check_premium(user_id):
         expires = datetime.fromisoformat(premium["expires"]) if isinstance(premium["expires"], str) else premium["expires"]
         if datetime.now() > expires:
             config["premium"] = {"type": "free", "expires": None, "daily_conversions": 0, "daily_failed": 0, "last_reset": str(datetime.now().date())}
-            save_db(db)
+            asyncio.get_event_loop().create_task(_save_user(user_id))
             return "free"
     return premium["type"]
 
@@ -378,7 +389,7 @@ def check_daily_limit(user_id):
         config["premium"]["daily_conversions"] = 0
         config["premium"]["daily_failed"] = 0
         config["premium"]["last_reset"] = today
-        save_db(db)
+        asyncio.get_event_loop().create_task(_save_user(user_id))
 
     limits = get_premium_limits(user_id)
     return config["premium"]["daily_conversions"] < limits["daily_limit"]
@@ -401,7 +412,7 @@ def add_conversion(user_id, success=True):
     else:
         config["premium"]["daily_failed"] += 1
 
-    save_db(db)
+    asyncio.get_event_loop().create_task(_save_user(user_id))
 
 
 # ==================== REDEEM CODES ====================
@@ -411,29 +422,31 @@ def generate_redeem_codes(count, duration_str, plan="gold"):
         return None
     days = duration.days
     codes = []
-    generated = []
     for _ in range(count):
         code = ''.join(random.choices(string.ascii_uppercase + string.digits, k=8))
-        while code in db["redeem_codes"]:
+        while code in db.redeem_codes:
             code = ''.join(random.choices(string.ascii_uppercase + string.digits, k=8))
-        db["redeem_codes"][code] = {
+        doc = {
+            "_id": code,
             "plan": plan,
             "days": days,
             "used_by": None,
             "used_at": None,
             "created_at": datetime.now().isoformat()
         }
+        db.redeem_codes[code] = doc
+        asyncio.get_event_loop().create_task(
+            _col_redeem_codes.replace_one({"_id": code}, doc, upsert=True)
+        )
         codes.append(code)
-        generated.append(code)
-    save_db(db)
-    return generated
+    return codes
 
 def get_redeem_code(code):
-    return db["redeem_codes"].get(code)
+    return db.redeem_codes.get(code)
 
 def has_active_redeemed_plan(user_id):
     uid = str(user_id)
-    for code_data in db["redeem_codes"].values():
+    for code_data in db.redeem_codes.values():
         if code_data["used_by"] == uid:
             config = get_user_config(uid)
             premium = config.get("premium", {})
@@ -448,10 +461,10 @@ def has_active_redeemed_plan(user_id):
     return False
 
 def use_redeem_code(code, user_id):
-    if code in db["redeem_codes"] and db["redeem_codes"][code]["used_by"] is None:
+    if code in db.redeem_codes and db.redeem_codes[code]["used_by"] is None:
         if has_active_redeemed_plan(user_id):
             return "active"
-        code_data = db["redeem_codes"][code]
+        code_data = db.redeem_codes[code]
         plan = code_data["plan"]
         days = code_data["days"]
         config = get_user_config(user_id)
@@ -463,24 +476,28 @@ def use_redeem_code(code, user_id):
             "daily_failed": 0,
             "last_reset": str(datetime.now().date())
         }
-        db["redeem_codes"][code]["used_by"] = str(user_id)
-        db["redeem_codes"][code]["used_at"] = datetime.now().isoformat()
-        save_db(db)
+        db.redeem_codes[code]["used_by"] = str(user_id)
+        db.redeem_codes[code]["used_at"] = datetime.now().isoformat()
+        asyncio.get_event_loop().create_task(_save_user(user_id))
+        asyncio.get_event_loop().create_task(
+            _col_redeem_codes.replace_one({"_id": code}, db.redeem_codes[code], upsert=True)
+        )
         return True
     return False
 
 def get_active_redeem_count():
-    return sum(1 for code in db["redeem_codes"].values() if code["used_by"] is None)
+    return sum(1 for code in db.redeem_codes.values() if code["used_by"] is None)
 
 def can_buy_test(user_id):
-    return str(user_id) not in db.get("bought_test", [])
+    return str(user_id) not in db.bought_test
 
 def mark_test_bought(user_id):
-    if "bought_test" not in db:
-        db["bought_test"] = []
-    if str(user_id) not in db["bought_test"]:
-        db["bought_test"].append(str(user_id))
-        save_db(db)
+    uid = str(user_id)
+    if uid not in db.bought_test:
+        db.bought_test.append(uid)
+        asyncio.get_event_loop().create_task(
+            _col_bought_test.replace_one({"_id": uid}, {"_id": uid}, upsert=True)
+        )
 
 def add_premium(user_id, plan, duration_str):
     duration = parse_duration(duration_str)
@@ -498,7 +515,7 @@ def add_premium(user_id, plan, duration_str):
             "daily_failed": 0,
             "last_reset": str(datetime.now().date())
         }
-        save_db(db)
+        asyncio.get_event_loop().create_task(_save_user(user_id))
         return True
     return False
 
@@ -1273,21 +1290,21 @@ async def callback_manager(client, query: CallbackQuery):
         
         elif data.startswith("m_"):
             config["mode"] = data.split("_")[1]
-            save_db(db)
+            asyncio.get_event_loop().create_task(_save_user(uid))
             query.data = "ui_settings"
             await callback_manager(client, query)
             return
         
         elif data.startswith("r_"):
             config["rename"] = data.split("_")[1]
-            save_db(db)
+            asyncio.get_event_loop().create_task(_save_user(uid))
             query.data = "ui_settings"
             await callback_manager(client, query)
             return
         
         elif data.startswith("ss_"):
             config["screenshots"] = int(data.split("_")[1])
-            save_db(db)
+            asyncio.get_event_loop().create_task(_save_user(uid))
             query.data = "ui_settings"
             await callback_manager(client, query)
             return
@@ -1478,8 +1495,8 @@ async def redeem_code_command(client, message):
 
 @bot.on_message(filters.command("redeem_stats") & filters.user(ADMIN_ID))
 async def redeem_stats_command(client, message):
-    total = len(db["redeem_codes"])
-    used = sum(1 for code in db["redeem_codes"].values() if code["used_by"] is not None)
+    total = len(db.redeem_codes)
+    used = sum(1 for code in db.redeem_codes.values() if code["used_by"] is not None)
     available = total - used
     text = (
         f"<b>🎫 Redeem Codes Statistics</b>\n\n"
@@ -1490,7 +1507,7 @@ async def redeem_stats_command(client, message):
     if available > 0:
         text += "Recent codes:\n"
         count = 0
-        for code, data in db["redeem_codes"].items():
+        for code, data in db.redeem_codes.items():
             if data["used_by"] is None and count < 10:
                 days = data["days"]
                 plan = data["plan"].upper()
@@ -1501,11 +1518,11 @@ async def redeem_stats_command(client, message):
 # ==================== ADMIN COMMANDS ====================
 @bot.on_message(filters.command("admin") & filters.user(ADMIN_ID))
 async def admin_panel(client, message):
-    users_count = len(db["users"])
-    banned_count = len(db["banned"])
+    users_count = len(db.users)
+    banned_count = len(db.banned)
     redeem_count = get_active_redeem_count()
     test_count = gold_count = ultra_count = 0
-    for uid, user_data in db["users"].items():
+    for uid, user_data in db.users.items():
         premium_type = check_premium(uid)
         if premium_type == "test":
             test_count += 1
@@ -1599,7 +1616,7 @@ async def remove_plan_cmd(client, message):
         return await message.reply_text("❌ User has no active plan.", reply_to_message_id=message.id)
     old_plan = config["premium"]["type"]
     config["premium"] = {"type": "free", "expires": None, "daily_conversions": 0, "daily_failed": 0, "last_reset": str(datetime.now().date())}
-    save_db(db)
+    asyncio.get_event_loop().create_task(_save_user(user_id))
     await message.reply_text(f"✅ Removed {old_plan.upper()} plan from user {user_id}", reply_to_message_id=message.id)
 
 @bot.on_message(filters.command("plan_list") & filters.user(ADMIN_ID))
@@ -1607,7 +1624,7 @@ async def plan_list_cmd(client, message):
     test_users = []
     gold_users = []
     ultra_users = []
-    for uid, user_data in db["users"].items():
+    for uid, user_data in db.users.items():
         premium_type = check_premium(uid)
         if premium_type == "test":
             test_users.append(uid)
@@ -1644,7 +1661,7 @@ async def broadcast_cmd(client, message):
         return await message.reply_text("Reply to a message to broadcast.", reply_to_message_id=message.id)
     is_forward = "-f" in message.text
     mode_label = "📨 Forward" if is_forward else "📋 Copy"
-    total_users = len(db["users"])
+    total_users = len(db.users)
     success, failed = 0, 0
     last_edit = time.time()
 
@@ -1659,7 +1676,7 @@ async def broadcast_cmd(client, message):
         reply_to_message_id=message.id
     )
 
-    for user_id in db["users"]:
+    for user_id in db.users:
         try:
             if is_forward:
                 await message.reply_to_message.forward(int(user_id))
@@ -1708,9 +1725,9 @@ async def ban_user_cmd(client, message):
     if len(message.command) < 2:
         return await message.reply_text("Usage: <code>/ban [id]</code>", reply_to_message_id=message.id)
     target = message.command[1]
-    if target not in db["banned"]:
-        db["banned"].append(target)
-        save_db(db)
+    if target not in db.banned:
+        db.banned.append(target)
+        asyncio.get_event_loop().create_task(_col_banned.replace_one({"_id": target}, {"_id": target}, upsert=True))
         await message.reply_text(f"🚫 User <code>{target}</code> banned.", reply_to_message_id=message.id)
     else:
         await message.reply_text("User already banned.", reply_to_message_id=message.id)
@@ -1720,16 +1737,16 @@ async def unban_user_cmd(client, message):
     if len(message.command) < 2:
         return await message.reply_text("Usage: <code>/unban [id]</code>", reply_to_message_id=message.id)
     target = message.command[1]
-    if target in db["banned"]:
-        db["banned"].remove(target)
-        save_db(db)
+    if target in db.banned:
+        db.banned.remove(target)
+        asyncio.get_event_loop().create_task(_col_banned.delete_one({"_id": target}))
         await message.reply_text(f"✅ User <code>{target}</code> unbanned.", reply_to_message_id=message.id)
     else:
         await message.reply_text("User not banned.", reply_to_message_id=message.id)
 
 @bot.on_message(filters.command("users") & filters.user(ADMIN_ID))
 async def users_list(client, message):
-    users = list(db["users"].keys())
+    users = list(db.users.keys())
     total = len(users)
     if total == 0:
         return await message.reply_text("<b>👥 No users yet.</b>", reply_to_message_id=message.id)
@@ -1752,7 +1769,7 @@ async def users_list(client, message):
 
 @bot.on_message(filters.command("allban") & filters.user(ADMIN_ID))
 async def allban_list(client, message):
-    banned = db.get("banned", [])
+    banned = db.banned
     total = len(banned)
     if total == 0:
         return await message.reply_text("<b>🔨 No banned users.</b>", reply_to_message_id=message.id)
@@ -1788,8 +1805,9 @@ async def set_cap_p(client, message):
             "Use <code>/del_caption</code> to reset to default"
         )
         return await message.reply_text(help_text, reply_to_message_id=message.id)
-    get_user_config(message.from_user.id)["caption"] = message.text.split(None, 1)[1]
-    save_db(db)
+    uid = str(message.from_user.id)
+    get_user_config(uid)["caption"] = message.text.split(None, 1)[1]
+    asyncio.get_event_loop().create_task(_save_user(uid))
     await message.reply_text("✅ <b>Caption Updated!</b>", reply_to_message_id=message.id)
 
 @bot.on_message(filters.command(["see_caption", "view_cap", "view_caption"]))
@@ -1804,14 +1822,16 @@ async def view_cap_p(client, message):
 
 @bot.on_message(filters.command(["del_caption", "del_cap"]))
 async def del_cap_p(client, message):
-    get_user_config(message.from_user.id)["caption"] = "<b><i>{filename}</i>\n\n<blockquote>Size: {filesize}</blockquote></b>"
-    save_db(db)
+    uid = str(message.from_user.id)
+    get_user_config(uid)["caption"] = "<b><i>{filename}</i>\n\n<blockquote>Size: {filesize}</blockquote></b>"
+    asyncio.get_event_loop().create_task(_save_user(uid))
     await message.reply_text("🗑 <b>Caption Reset to Default!</b>", reply_to_message_id=message.id)
 
 @bot.on_message(filters.photo | (filters.document & filters.create(lambda _, __, m: m.document and m.document.mime_type.startswith("image/"))))
 async def save_thumb_p(client, message):
-    get_user_config(message.from_user.id)["thumb"] = (message.photo or message.document).file_id
-    save_db(db)
+    uid = str(message.from_user.id)
+    get_user_config(uid)["thumb"] = (message.photo or message.document).file_id
+    asyncio.get_event_loop().create_task(_save_user(uid))
     await message.reply_text("✅ <b>Thumbnail Saved!</b>", reply_to_message_id=message.id)
 
 @bot.on_message(filters.command(["viewthumb", "view_thumb"]))
@@ -1824,8 +1844,9 @@ async def view_thumb_p(client, message):
 
 @bot.on_message(filters.command(["delthumb", "del_thumb"]))
 async def del_thumb_p(client, message):
-    get_user_config(message.from_user.id)["thumb"] = None
-    save_db(db)
+    uid = str(message.from_user.id)
+    get_user_config(uid)["thumb"] = None
+    asyncio.get_event_loop().create_task(_save_user(uid))
     await message.reply_text("🗑 <b>Thumbnail Deleted!</b>", reply_to_message_id=message.id)
 
 @bot.on_message(filters.command("plans"))
@@ -1849,7 +1870,7 @@ async def on_file_receive(client, message):
     uid = message.from_user.id
     config = get_user_config(uid)
     
-    if str(uid) in db["banned"]:
+    if str(uid) in db.banned:
         return await message.reply_text("🚫 <b>You are banned from using this bot.</b>", reply_to_message_id=message.id)
     
     file = message.video or message.document
@@ -2143,6 +2164,7 @@ async def process_now(client, message, target, filename):
 
 # ==================== START BOT ====================
 async def main():
+    await db.load()
     await bot.start()
     bot_me = await bot.get_me()
     print(f"🤖 Bot:       @{bot_me.username} ({bot_me.first_name})")
