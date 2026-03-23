@@ -137,8 +137,8 @@ A high-performance, feature-rich Telegram bot built with **Pyrofork**. This bot 
 
 ## ⚙️ Configuration (.env)
 
-| Variable | Description | Example | Required |
-|---|---|---|---|
+| Variable | Description | Required |
+|---|---|---|
 | `API_ID` | Telegram API ID from my.telegram.org | ✓ |
 | `API_HASH` | Telegram API Hash from my.telegram.org | ✓ |
 | `BOT_TOKEN` | Bot token from @BotFather | ✓ |
